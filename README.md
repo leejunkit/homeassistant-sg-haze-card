@@ -1,6 +1,7 @@
 # Haze PM2.5 Card for Home Assistant
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
+[![HACS validation](https://github.com/leejunkit/homeassistant-sg-haze-card/actions/workflows/validate.yml/badge.svg)](https://github.com/leejunkit/homeassistant-sg-haze-card/actions/workflows/validate.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A self-contained [Lovelace](https://www.home-assistant.io/dashboards/) card that shows
@@ -33,8 +34,7 @@ populated the moment the card loads.
 Because `hacs.json` declares a `filename`, HACS registers the dashboard resource
 for you — you can skip straight to [Usage](#usage).
 
-> To add the repository with one click, replace the placeholders and use:
-> `https://my.home-assistant.io/redirect/hacs_repository/?owner=<OWNER>&repository=<REPO>&category=plugin`
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=leejunkit&repository=homeassistant-sg-haze-card&category=plugin)
 
 ### Manual
 
@@ -169,7 +169,7 @@ git init
 git add .
 git commit -m "Haze PM2.5 card v1.0.0"
 git branch -M main
-git remote add origin https://github.com/<OWNER>/<REPO>.git
+git remote add origin https://github.com/leejunkit/homeassistant-sg-haze-card.git
 git push -u origin main
 
 git tag -a v1.0.0 -m "v1.0.0"
