@@ -38,6 +38,20 @@ function jsonResponse(body) {
   return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
 }
 
+/** Freeze "now" inside a jsdom window while preserving normal Date parsing. */
+function fakeDate(iso) {
+  const RealDate = Date;
+  const fixed = new RealDate(iso).getTime();
+  return class extends RealDate {
+    constructor(...args) {
+      super(...(args.length === 0 ? [fixed] : args));
+    }
+    static now() {
+      return fixed;
+    }
+  };
+}
+
 async function main() {
   console.log('registration');
   {
@@ -95,6 +109,46 @@ async function main() {
     check('graph hidden', !html.includes('<polyline'));
     check('hours respected', card._model.points.length === 6, `got ${card._model.points.length}`);
     check('card size shrinks', card.getCardSize() === 2, `got ${card.getCardSize()}`);
+  }
+
+  console.log('5-minute rounding');
+  {
+    const API = 'https://www.haze.gov.sg/api/airquality/jsondata/';
+    const cases = [
+      ['2026-10-16T15:47:00', '15:45'],
+      ['2026-10-16T15:45:00', '15:45'],
+      ['2026-10-16T15:44:59', '15:40'],
+      ['2026-10-16T15:12:00', '15:10'],
+      ['2026-10-16T00:59:00', '00:55'],
+      ['2026-10-16T23:59:59', '23:55'],
+    ];
+    for (const [now, expected] of cases) {
+      let requested = null;
+      const dom = makeDom((url) => {
+        requested = url;
+        return jsonResponse(fixture);
+      });
+      dom.window.Date = fakeDate(now);
+      const card = dom.window.document.createElement('haze-pm25-card');
+      card.setConfig({ region: 'north' });
+      await card._refresh();
+      const expectedTs = Math.floor(new Date(`${now.slice(0, 10)}T${expected}:00`).getTime() / 1000);
+      check(`${now.slice(11)} -> ${expected}`, requested === `${API}${expectedTs}`, requested);
+      check(`  _usedTimestamp is the slot`, card._usedTimestamp === expectedTs, card._usedTimestamp);
+    }
+
+    // The refresh timer should target the next 5-minute slot, not the next hour.
+    let captured = null;
+    const dom = makeDom(() => jsonResponse(fixture));
+    dom.window.Date = fakeDate('2026-10-16T15:47:00');
+    dom.window.setTimeout = (fn, ms) => {
+      captured = ms;
+      return 0;
+    };
+    const card = dom.window.document.createElement('haze-pm25-card');
+    card.setConfig({ region: 'north' });
+    await card._refresh();
+    check('schedules 4 min to 15:51 (next 5-minute slot)', captured === 4 * 60 * 1000, captured);
   }
 
   console.log('bad config');

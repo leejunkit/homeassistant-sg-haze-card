@@ -14,7 +14,7 @@ Data comes straight from the Singapore government's public haze API:
 GET https://www.haze.gov.sg/api/airquality/jsondata/<unix timestamp>
 ```
 
-where `<unix timestamp>` is the current local time floored to the hour.
+where `<unix timestamp>` is the current local time floored to the nearest 5 minutes.
 
 The card needs **no integration, no sensors and no recorder history** — every API
 response already contains the last 24 hourly readings, so the trend line is
@@ -122,12 +122,14 @@ matches what haze.gov.sg reports.
 ## How it works
 
 - The card computes the API timestamp itself by flooring the browser's local time
-  to the hour, then calls `haze.gov.sg` directly. The API returns
+  to the nearest 5 minutes, then calls `haze.gov.sg` directly. The API returns
   `Access-Control-Allow-Origin: *`, so the browser is allowed to call it cross-origin.
+  This matches [haze.gov.sg's own `timestamp`](https://www.haze.gov.sg/api/UnixTime/GetTime/),
+  which flattens the time to 5-minute buckets.
 - Each response contains a 24-hour series per region under `Chart1HRPM25`, so the
   graph needs no stored history.
-- The card refreshes shortly after every hour rolls over, and when the dashboard
-  becomes visible again. If the newest hour isn't published yet it walks back up to
+- The card refreshes shortly after every 5-minute slot begins, and when the dashboard
+  becomes visible again. If the newest data isn't published yet it walks back up to
   three hours before showing an error.
 - If nothing can be fetched, the card shows an *Unavailable* state with a **Retry**
   button.
@@ -155,7 +157,7 @@ tests/sandbox/run.sh
 with:
 
 ```sh
-ts=$(( $(date +%s) / 3600 * 3600 ))
+ts=$(( $(date +%s) / 300 * 300 ))
 curl -s "https://www.haze.gov.sg/api/airquality/jsondata/$ts" -o tests/fixture.json
 ```
 
@@ -196,7 +198,9 @@ above is green and a release exists.
 
 ## Notes
 
-- Readings are published hourly, so a value is always "as of" the previous hour.
-  The card labels this and dims the value if the data is more than three hours old.
+- Readings are published hourly, but the card re-fetches every 5 minutes (mirroring
+  haze.gov.sg) so it picks up new data promptly. A value is always "as of" the
+  previous hour; the card labels this and dims the value if the data is more than
+  three hours old.
 - This project is not affiliated with NEA. Data source:
   [haze.gov.sg](https://www.haze.gov.sg/).

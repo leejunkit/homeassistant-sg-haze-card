@@ -7,7 +7,8 @@
  *
  * Data source (public, CORS-enabled):
  *   GET https://www.haze.gov.sg/api/airquality/jsondata/<unix timestamp>
- * where <unix timestamp> is the current local time floored to the hour.
+ * where <unix timestamp> is the current local time floored to the nearest 5 minutes
+ * (matching haze.gov.sg's own /api/UnixTime/GetTime endpoint).
  *
  * The card needs no Home Assistant integration, no sensors and no recorder
  * history: each API response already contains the last 24 hourly readings.
@@ -16,8 +17,15 @@
  */
 
 const CARD_TAG = 'haze-pm25-card';
-const CARD_VERSION = '1.0.0';
+const CARD_VERSION = '1.1.0';
 const API_BASE = 'https://www.haze.gov.sg/api/airquality/jsondata/';
+
+/**
+ * How often the API timestamp advances. haze.gov.sg's own /api/UnixTime/GetTime
+ * endpoint floors the time to 5 minutes, so the card matches that.
+ * Must divide an hour evenly.
+ */
+const SLOT_SECONDS = 5 * 60;
 
 /** Region keys are what the user writes in YAML; values are the API's keys. */
 const REGIONS = {
@@ -53,10 +61,11 @@ function bandNumber(band) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Current local time floored to the hour, as unix seconds. */
-function currentHourSeconds(date) {
+/** Current local time floored to the nearest slot (SLOT_SECONDS), as unix seconds. */
+function currentSlotSeconds(date) {
   const d = date ? new Date(date) : new Date();
-  d.setMinutes(0, 0, 0);
+  const stepMinutes = SLOT_SECONDS / 60;
+  d.setMinutes(d.getMinutes() - (d.getMinutes() % stepMinutes), 0, 0);
   return Math.floor(d.getTime() / 1000);
 }
 
@@ -257,10 +266,10 @@ class HazePm25Card extends HTMLElement {
     }
   }
 
-  /** Fetch only if the current hour's data isn't loaded yet. */
+  /** Fetch only if the current slot isn't loaded yet. */
   _maybeFetch() {
-    const hour = currentHourSeconds();
-    if (this._usedTimestamp === hour && !this._error) return;
+    const slot = currentSlotSeconds();
+    if (this._usedTimestamp === slot && !this._error) return;
     this._refresh();
   }
 
@@ -279,7 +288,7 @@ class HazePm25Card extends HTMLElement {
     this._error = null;
     this._render();
 
-    const baseTs = currentHourSeconds();
+    const baseTs = currentSlotSeconds();
     let lastError = null;
 
     // The newest hour can lag slightly; walk back a few hours before giving up.
@@ -311,14 +320,14 @@ class HazePm25Card extends HTMLElement {
     this._schedule(baseTs);
   }
 
-  /** Re-fetch shortly after the next hour rolls over. */
+  /** Re-fetch shortly after the next slot begins. */
   _schedule(baseTs) {
     if (this._timer) {
       clearTimeout(this._timer);
       this._timer = null;
     }
-    const nextHourMs = (baseTs + 3600) * 1000 + 60 * 1000; // one minute past the hour
-    const delay = Math.max(30000, nextHourMs - Date.now());
+    const nextSlotMs = (baseTs + SLOT_SECONDS) * 1000 + 60 * 1000; // one minute past the slot
+    const delay = Math.max(30000, nextSlotMs - Date.now());
     this._timer = setTimeout(() => {
       this._timer = null;
       this._refresh();
