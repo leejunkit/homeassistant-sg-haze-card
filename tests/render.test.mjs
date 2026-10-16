@@ -58,6 +58,11 @@ async function main() {
     const dom = makeDom(() => jsonResponse(fixture));
     check('custom element defined', !!dom.window.customElements.get('haze-pm25-card'));
     check('registered in window.customCards', (dom.window.customCards || []).some((c) => c.type === 'haze-pm25-card'));
+
+    // The header comment has drifted from the constant before; keep them locked.
+    const headerVersion = (/Version:\s*([0-9.]+)/.exec(cardSource) || [])[1];
+    const constVersion = (/CARD_VERSION = '([^']+)'/.exec(cardSource) || [])[1];
+    check('header version matches CARD_VERSION', headerVersion === constVersion, `${headerVersion} vs ${constVersion}`);
   }
 
   console.log('happy path (north)');
@@ -74,7 +79,7 @@ async function main() {
     check('unit rendered', html.includes('\u00b5g/m\u00b3'));
     check('band chip rendered', /Band \d/.test(html));
     check('caption rendered', html.includes('as of'));
-    check('sparkline rendered', html.includes('<polyline') && html.includes('<polygon'));
+    check('sparkline rendered', html.includes('<polyline') && html.includes('<rect'));
     check('24 points in model', card._model.points.length === 24, `got ${card._model.points.length}`);
     check('low/high footer', html.includes('high'));
     check('no error state', !html.includes('Unavailable'));
@@ -149,6 +154,82 @@ async function main() {
     card.setConfig({ region: 'north' });
     await card._refresh();
     check('schedules 4 min to 15:51 (next 5-minute slot)', captured === 4 * 60 * 1000, captured);
+  }
+
+  console.log('severity bands');
+  {
+    const BAND_COLORS = { 1: '#479b02', 2: '#e0a800', 3: '#f58220', 4: '#e60000' };
+    const series = (valuesAndBands) => ({
+      ChartAsOfDate: '3pm on 16 Oct 2026',
+      Chart1HRPM25: {
+        North: {
+          Data: valuesAndBands.map(([value, band], i) => ({
+            value,
+            band,
+            dateTime: `16 Oct 2026 ${String(i + 4).padStart(2, '0')}AM`,
+          })),
+        },
+      },
+    });
+
+    const render = async (payload) => {
+      const dom = makeDom(() => jsonResponse(payload));
+      const card = dom.window.document.createElement('haze-pm25-card');
+      card.setConfig({ region: 'north' });
+      await card._refresh();
+      return card.shadowRoot.innerHTML;
+    };
+
+    const wide = await render(
+      series([
+        [20, 'I'],
+        [100, 'II'],
+        [200, 'III'],
+        [300, 'IV'],
+      ])
+    );
+    const narrow = await render(
+      series([
+        [100, 'II'],
+        [140, 'II'],
+      ])
+    );
+
+    for (const [band, color] of Object.entries(BAND_COLORS)) {
+      check(`band ${band} stripe painted (wide series)`, wide.includes(`fill="${color}"`), color);
+    }
+
+    // The scale is fixed, so even a series sitting in one band paints all four
+    // stripes, at the same heights — that is the point of comparability.
+    for (const [band, color] of Object.entries(BAND_COLORS)) {
+      check(`band ${band} stripe painted (narrow series)`, narrow.includes(`fill="${color}"`), color);
+    }
+
+    const rects = (html) => html.match(/<rect[^>]*>/g) || [];
+    check(
+      'band geometry identical across data ranges (fixed scale)',
+      JSON.stringify(rects(wide)) === JSON.stringify(rects(narrow)),
+      `${rects(wide).length} vs ${rects(narrow).length} rects`
+    );
+
+    // A reading above the top of the scale keeps the shared scale: the bands do
+    // not move, and the line is pinned inside the plot rather than clipped.
+    const extreme = await render(
+      series([
+        [3, 'I'],
+        [380, 'IV'],
+      ])
+    );
+    check(
+      'off-scale reading keeps identical band geometry',
+      JSON.stringify(rects(extreme)) === JSON.stringify(rects(wide)),
+      `${rects(extreme).length} vs ${rects(wide).length} rects`
+    );
+    const ys = ((extreme.match(/<polyline[^>]*points="([^"]+)"/) || [])[1] || '')
+      .split(' ')
+      .map((pt) => Number(pt.split(',')[1]))
+      .filter((y) => Number.isFinite(y));
+    check('readings outside the scale stay inside the plot', ys.length > 0 && ys.every((y) => y >= 0 && y <= 40), JSON.stringify(ys));
   }
 
   console.log('bad config');

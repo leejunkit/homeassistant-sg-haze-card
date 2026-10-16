@@ -98,8 +98,34 @@ async function login() {
   return exchange(result.result);
 }
 
-async function main() {
-  console.log('onboarding');
+/** Synthetic payload spanning all four bands, for the colour-reference screenshot. */
+function syntheticPayload() {
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const now = new Date(Date.now() - 5 * 60 * 1000); // just-published, so not flagged stale
+  const ranges = { North: [30, 255], South: [90, 190], East: [40, 95], West: [225, 260] };
+  const bandOf = (v) => (v <= 55 ? 'I' : v <= 150 ? 'II' : v <= 250 ? 'III' : 'IV');
+  const stamp = (i) => {
+    const h = (now.getHours() - 23 + i + 24) % 24;
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()} ${String(h12).padStart(2, '0')}${h < 12 ? 'AM' : 'PM'}`;
+  };
+  const h = now.getHours();
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const asOf = `${h12}${h < 12 ? 'am' : 'pm'} on ${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+
+  const data = {};
+  for (const [name, [from, to]] of Object.entries(ranges)) {
+    data[name] = {
+      Data: Array.from({ length: 24 }, (_, i) => {
+        const value = Math.max(1, Math.round(from + ((to - from) * i) / 23 + Math.sin(i / 2) * 6));
+        return { value, valueColor: '#595959', band: bandOf(value), dateTime: stamp(i) };
+      }),
+    };
+  }
+  return { MachineID: 'demo', ChartAsOfDate: asOf, Chart1HRPM25: data };
+}
+
+async function main() {  console.log('onboarding');
   const tokens = await onboard();
 
   console.log('browser');
@@ -199,6 +225,26 @@ async function main() {
     await page.screenshot({ path: shotPath, fullPage: true });
   }
   console.log(`  screenshot: ${shotPath}`);
+
+  // Second capture: synthetic series spanning all four bands, so the band
+  // colours can be reviewed even when live air quality sits in one band.
+  const demoPath = `${outDir}/haze-cards-bands.png`;
+  await page.route('**/api/airquality/jsondata/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(syntheticPayload()),
+    })
+  );
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('haze-pm25-card .value').last().waitFor({ timeout: 60000 });
+  await page.waitForTimeout(2500);
+  try {
+    await page.locator('hui-grid-card').first().screenshot({ path: demoPath, timeout: 10000 });
+  } catch {
+    await page.screenshot({ path: demoPath, fullPage: true });
+  }
+  console.log(`  screenshot (synthetic bands): ${demoPath}`);
 
   // Home Assistant's own frontend logs unrelated CSS deprecation warnings; only
   // fail on errors that could come from the card.

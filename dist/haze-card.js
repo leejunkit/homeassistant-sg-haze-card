@@ -13,11 +13,11 @@
  * The card needs no Home Assistant integration, no sensors and no recorder
  * history: each API response already contains the last 24 hourly readings.
  *
- * Version: 1.0.0
+ * Version: 1.2.0
  */
 
 const CARD_TAG = 'haze-pm25-card';
-const CARD_VERSION = '1.1.0';
+const CARD_VERSION = '1.2.0';
 const API_BASE = 'https://www.haze.gov.sg/api/airquality/jsondata/';
 
 /**
@@ -43,6 +43,23 @@ const BANDS = {
   3: { label: 'Band 3', descriptor: 'High', color: '#f58220' },
   4: { label: 'Band 4', descriptor: 'Very High', color: '#e60000' },
 };
+
+/**
+ * Contiguous limits for the four bands, used to paint the chart background.
+ * The half-unit edges sit between the last value of one band and the first of
+ * the next (0-55 / 56-150 / 151-250 / 251+). Band 1 starts at -Infinity and
+ * band 4 ends at +Infinity so the stripes always reach the plot edges.
+ */
+const BAND_EDGES = [-Infinity, 55.5, 150.5, 250.5, Infinity];
+
+/**
+ * Fixed chart scale, in µg/m³. Strictly fixed so the band stripes sit at the
+ * same height on every card and regions stay comparable at a glance, even
+ * during a severe episode. Readings outside it are kept on the shared scale:
+ * high ones pin near the top of the plot, low ones sit low in Band 1.
+ */
+const SCALE_MIN = 25;
+const SCALE_MAX = 250;
 
 const ROMAN = { i: 1, ii: 2, iii: 3, iv: 4, v: 5 };
 
@@ -139,26 +156,45 @@ function buildModel(json, regionKey, hours) {
   };
 }
 
-/** Sparkline markup. Colours come from the caller so bands can tint the line. */
+/** Sparkline markup: severity bands behind a line tinted with the current band. */
 function sparkline(points, color) {
   const W = 100;
   const H = 40;
   const PAD = 5;
-  const values = points.map((p) => p.value);
-  let min = Math.min.apply(null, values);
-  let max = Math.max.apply(null, values);
-  if (min === max) {
-    min -= 1;
-    max += 1;
-  }
+
+  // Strictly fixed scale so band stripes land at identical heights on every card.
+  const min = SCALE_MIN;
+  const max = SCALE_MAX;
 
   const n = points.length;
   const xAt = (i) => (n === 1 ? W / 2 : (i / (n - 1)) * W);
   const yAt = (v) => PAD + (1 - (v - min) / (max - min)) * (H - PAD * 2);
+  // Only the line is capped: readings past the top of the scale pin near the top
+  // of the plot — inside the Band 4 cap — instead of rescaling the card.
+  const yLine = (v) => Math.min(H - 1, Math.max(1, yAt(v)));
 
-  const coords = points.map((p, i) => [xAt(i), yAt(p.value)]);
+  // Values at the very top and bottom of the plot, so the bands also fill the
+  // padding strip instead of leaving bare gaps above and below the line.
+  const padValue = (PAD / (H - PAD * 2)) * (max - min);
+  const domainLo = min - padValue;
+  const domainHi = max + padValue;
+
+  const bandRects = [1, 2, 3, 4]
+    .map((band) => {
+      const lo = Math.max(BAND_EDGES[band - 1], domainLo);
+      const hi = Math.min(BAND_EDGES[band], domainHi);
+      if (hi <= lo) return '';
+      const top = yAt(hi);
+      const bottom = yAt(lo);
+      return (
+        `<rect x="0" y="${top.toFixed(2)}" width="${W}" height="${(bottom - top).toFixed(2)}" ` +
+        `fill="${BANDS[band].color}" opacity="0.22"></rect>`
+      );
+    })
+    .join('');
+
+  const coords = points.map((p, i) => [xAt(i), yLine(p.value)]);
   const line = coords.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' ');
-  const area = `0,${H} ${line} ${W},${H}`;
   const [lastX, lastY] = coords[coords.length - 1];
 
   const hitAreas = points
@@ -174,8 +210,13 @@ function sparkline(points, color) {
 
   return (
     `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true" focusable="false">` +
-    `<polygon points="${area}" fill="${color}" opacity="0.16"></polygon>` +
-    `<polyline points="${line}" fill="none" stroke="${color}" stroke-width="1.6" ` +
+    bandRects +
+    // A halo keeps the line readable where it sits on a band of the same colour.
+    `<polyline points="${line}" fill="none" ` +
+    `stroke="var(--ha-card-background, var(--card-background-color, #fff))" ` +
+    `stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round" ` +
+    `vector-effect="non-scaling-stroke" opacity="0.85"></polyline>` +
+    `<polyline points="${line}" fill="none" stroke="${color}" stroke-width="1.8" ` +
     `stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"></polyline>` +
     hitAreas +
     `</svg>` +
@@ -477,7 +518,7 @@ HazePm25Card.styles = `
   .is-stale .value { opacity: 0.55; }
   .is-stale .caption-main::after { content: " (stale)"; font-style: italic; }
   .graph { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
-  .graph-plot { position: relative; height: 52px; }
+  .graph-plot { position: relative; height: 64px; }
   .spark { display: block; width: 100%; height: 100%; }
   .spark-dot {
     position: absolute;

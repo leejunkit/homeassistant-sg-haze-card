@@ -106,6 +106,9 @@ cards:
 - **Change** — the delta against the previous hour.
 - **Trend line** — the last 24 hourly readings drawn from the API's own time series,
   with a low/high summary underneath.
+- **Severity bands** — the plot background is shaded with NEA's four bands
+  (Normal / Elevated / High / Very High) on a fixed 25–250 µg/m³ scale, so every
+  card's bands sit at the same height and regions can be compared directly.
 
 ### NEA 1-hour PM2.5 bands
 
