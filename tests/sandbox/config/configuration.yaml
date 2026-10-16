@@ -1,0 +1,15 @@
+# Sandbox Home Assistant config for verifying dist/haze-card.js.
+# Not part of the card itself; used only by the docker smoke test.
+default_config:
+
+lovelace:
+  mode: yaml
+  resources:
+    - url: /local/haze-card.js
+      type: module
+
+logger:
+  default: warning
+  logs:
+    homeassistant.components.lovelace: info
+    homeassistant.components.frontend: info

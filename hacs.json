@@ -1,0 +1,6 @@
+{
+  "name": "Haze PM2.5 Card",
+  "filename": "haze-card.js",
+  "country": "SG",
+  "homeassistant": "2023.6.0"
+}
